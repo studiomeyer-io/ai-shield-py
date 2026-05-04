@@ -42,7 +42,7 @@ jobs:
       - name: Generate Sigstore attestations
         # v2 is the current major (mcp-armor S988 also pinned to v2).
         # v1 still works but emits deprecation warnings as of GHA Q1 2026.
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: "dist/*"
 
