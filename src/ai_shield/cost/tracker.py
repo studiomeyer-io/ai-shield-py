@@ -51,7 +51,11 @@ class MemoryStore:
         async with self._lock:
             if key not in self._data:
                 return False
-            loop_time = asyncio.get_event_loop().time()
+            # Use get_running_loop (Python 3.10+) — get_event_loop is
+            # deprecated when there is no running loop and emits a
+            # DeprecationWarning since Python 3.12. We only ever call
+            # this from inside async methods so a running loop exists.
+            loop_time = asyncio.get_running_loop().time()
             self._expires_at[key] = loop_time + seconds
             return True
 
@@ -62,7 +66,9 @@ class MemoryStore:
             return None if v is None else str(v)
 
     def _sweep_expired(self) -> None:
-        now = asyncio.get_event_loop().time()
+        # `_sweep_expired` is only invoked from async methods that hold
+        # `_lock`, so a running loop is always present.
+        now = asyncio.get_running_loop().time()
         expired = [k for k, t in self._expires_at.items() if t <= now]
         for k in expired:
             self._data.pop(k, None)

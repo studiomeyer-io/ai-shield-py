@@ -64,13 +64,64 @@ def validate_iban(value: str) -> bool:
 
 
 def validate_german_tax_id(value: str) -> bool:
-    """German Steuer-ID: 11 digits, no leading zero."""
+    """German Steueridentifikationsnummer (BMF mod-11/10).
+
+    Spec: Bundesministerium der Finanzen, Anlage zum BMF-Schreiben
+    vom 9. Juli 2009 (IV C 5 - S 2378/09/10001).
+
+    Rules:
+        1. Exactly 11 digits, first digit must NOT be 0.
+        2. In the first 10 digits, exactly one digit must appear two or
+           three times, every other digit must be unique. (Equivalent:
+           at least 8 distinct digits in positions 0..9, no digit four
+           or more times.)
+        3. Mod-11/10 check digit (BMF algorithm) over the first 10
+           digits must equal the 11th digit.
+
+    Without rule 2 and 3, every random 11-digit string starting with
+    1-9 would test positive — that was the v0.1.0 false-positive class.
+    """
     cleaned = re.sub(r"\s+", "", value)
-    return bool(re.fullmatch(r"[1-9]\d{10}", cleaned))
+    if not re.fullmatch(r"[1-9]\d{10}", cleaned):
+        return False
+
+    digits = [int(c) for c in cleaned]
+    body, check = digits[:10], digits[10]
+
+    # Rule 2: distinct-digit constraint on the first 10.
+    counts: dict[int, int] = {}
+    for d in body:
+        counts[d] = counts.get(d, 0) + 1
+    pair_or_triple = sum(1 for c in counts.values() if c in (2, 3))
+    over_three = any(c > 3 for c in counts.values())
+    if over_three or pair_or_triple != 1:
+        return False
+
+    # Rule 3: BMF mod-11/10 check digit.
+    product = 10
+    for d in body:
+        s = (d + product) % 10
+        if s == 0:
+            s = 10
+        product = (s * 2) % 11
+    expected_check = (11 - product) % 10
+    return expected_check == check
+
+
+_IPV4_LIKE_RE = re.compile(r"^\s*(?:\d{1,3}\.){3}\d{1,3}\s*$")
 
 
 def validate_phone(value: str) -> bool:
-    """Phone-number digit-count check (7-15 digits per ITU E.164)."""
+    """Phone-number digit-count check (7-15 digits per ITU E.164).
+
+    Rejects IPv4-formatted strings (4 dot-separated digit groups) so
+    that `192.168.1.5` is left to `validate_ip_not_private` instead of
+    shadowing IP detection. v0.1.0 phone regex was strict enough that
+    IP-format never matched, but the v0.1.1 ReDoS-safe rewrite uses
+    a looser character class — the validator must compensate.
+    """
+    if _IPV4_LIKE_RE.match(value):
+        return False
     digits = [c for c in value if c.isdigit()]
     return 7 <= len(digits) <= 15
 
@@ -119,7 +170,16 @@ PII_PATTERNS: tuple[PIIPattern, ...] = (
     ),
     PIIPattern(
         "credit_card",
-        re.compile(r"\b(?:\d[ -]?){12,18}\d\b", _FLAGS),
+        # ReDoS-safe: anchored, no nested optional quantifier. Matches
+        # 12-19 digits in 4-digit groups separated by space or dash, plus
+        # a continuous-digit fallback for raw 12-19 digit blocks. The
+        # original `(?:\d[ -]?){12,18}\d` had per-position optional
+        # backtracking which is catastrophic on `1 2 3 4 ...` inputs.
+        # Validator (`validate_luhn`) does the final length + checksum.
+        re.compile(
+            r"\b(?:\d{4}[ -]\d{4}[ -]\d{4}[ -]\d{1,7}|\d{12,19})\b",
+            _FLAGS,
+        ),
         validator=validate_luhn,
     ),
     PIIPattern(
@@ -133,7 +193,13 @@ PII_PATTERNS: tuple[PIIPattern, ...] = (
     ),
     PIIPattern(
         "phone",
-        re.compile(r"(?:\+\d{1,3}[\s.-]?)?(?:\(?\d{2,4}\)?[\s.-]?){2,5}\d{2,4}", _FLAGS),
+        # ReDoS-safe: linear character-class instead of nested
+        # quantifier. Captures any 8-21 char run of digits + standard
+        # phone separators starting with `+` or a digit. Validator
+        # (`validate_phone`) enforces the ITU E.164 7-15 digit count.
+        # The original `(?:\(?\d{2,4}\)?[\s.-]?){2,5}` had catastrophic
+        # backtracking on adversarial `1 1 1 1 1 ...` inputs.
+        re.compile(r"(?:\+|\b)\d[\d\s.()\-]{6,18}\d", _FLAGS),
         validator=validate_phone,
     ),
     PIIPattern(

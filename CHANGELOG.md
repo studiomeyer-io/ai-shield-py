@@ -5,6 +5,90 @@ All notable changes to ai-shield-py will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-05-04
+
+Cold cross-review hardening pass — 3-agent sweep (Analyst + Critic +
+Research) on the v0.1.0 release identified two CI-deploy-blockers,
+three security-class bugs, four medium-severity items and one PEP
+gap. All addressed below. No API changes, no behavioural regression.
+Test count grows 297 → 311 (+14).
+
+### Fixed
+
+- **CI broken: `Twine check` step** in `.github/workflows/ci.yml`
+  failed since v0.1.0 because `twine` was not in
+  `[project.optional-dependencies] dev`. Added `twine>=5.0.0` to dev
+  extras and switched the step from `python -m twine` to plain
+  `twine` (now in PATH after `uv sync --dev`).
+- **Trusted Publisher URL mismatch.** `publish.yml` declared
+  `environment.url = https://pypi.org/p/ai-shield` but the package
+  was renamed to `studiomeyer-aishield` in v0.1.0 (Bosch's
+  `aishield@0.1.7` blocked the simpler name, see S990). Updated to
+  `https://pypi.org/p/studiomeyer-aishield`. The Pending Publisher
+  on PyPI must match this URL or OIDC will fail with
+  `invalid-publisher`.
+- **PII credit-card regex ReDoS.** `(?:\d[ -]?){12,18}\d` had
+  catastrophic backtracking on adversarial `1 2 3 4 5 ...` input
+  (multiple seconds on a 4 KB payload). Replaced with anchored
+  `\b(?:\d{4}[ -]\d{4}[ -]\d{4}[ -]\d{1,7}|\d{12,19})\b`, validated
+  by Luhn checksum. Three real card formats (Visa spaced, Visa
+  dashed, raw, Amex 15-digit) still match.
+- **PII phone regex ReDoS.** Nested `(?:\(?\d{2,4}\)?[\s.-]?){2,5}`
+  was equally exploitable. Replaced with linear character-class
+  `(?:\+|\b)\d[\d\s.()\-]{6,18}\d`, validated by ITU E.164 7–15
+  digit count. `+49 30 12345678`, `(212) 555-1234` and
+  `0049-30-1234567` still match.
+- **German Tax ID validator** previously accepted any 11-digit
+  string starting 1–9 (massive false-positive rate). Replaced with
+  the BMF mod-11/10 algorithm (Anlage zum BMF-Schreiben vom
+  9. Juli 2009): exactly one repeated digit in the first 10 (no
+  digit four-or-more times), check digit must match. Verified
+  against `26954371827`. The v0.1.0 false-positive
+  `12345678901` is now correctly rejected.
+- **`AuditLogger._auto_flush` was one-shot.** A single `await sleep`
+  followed by `flush` and exit. Records could remain stranded if no
+  follow-up `log()` re-armed the task. Now runs as a real loop until
+  `close()` cancels it.
+- **`asyncio.get_event_loop()` deprecated** in `cost/tracker.py`
+  `MemoryStore.expire` and `_sweep_expired`. Replaced with
+  `get_running_loop()` (Python 3.12 deprecation, removed Python
+  3.14). Both call sites are inside async methods so a running loop
+  is always present.
+
+### Added
+
+- `SECURITY.md` — vulnerability disclosure policy (72 h ack, 30 d
+  fix target, scope, ReDoS disclosure clause, coordinated
+  disclosure).
+- `CONTRIBUTING.md` — build/test workflow, MSRV pin, what we accept,
+  coding standards (no `print`, no `get_event_loop`, ReDoS-safe
+  regex policy, type-hints everywhere).
+- `src/ai_shield/py.typed` — PEP 561 marker so downstream `mypy`
+  consumers pick up our types. Wired into the wheel via
+  `[tool.hatch.build.targets.wheel.force-include]`.
+- README "Status" section listing v0.1 vs v0.2 backlog as a single
+  table (output-scanning, Postgres audit store, numpy z-score,
+  FastMCP 3.0, google-re2). No more spelunking through CHANGELOG to
+  find the open items.
+
+### Removed
+
+- **Ghost extras `[postgres]` and `[ml]`** from `pyproject.toml`.
+  Both were declared in v0.1.0 but never wired to a code path
+  (`anomaly.py` uses stdlib `math`, no asyncpg-backed
+  AuditStore implementation exists). Removing them stops users from
+  running `pip install studiomeyer-aishield[postgres]` and finding
+  nothing changed. Tracked for v0.2 in the README "Status" table.
+
+### Hardened
+
+- `actions/attest-build-provenance` bumped `@v1` → `@v2` in
+  `publish.yml` (mcp-armor S988 also pinned to v2).
+- `TestReDoSAdversarial` test class added to `tests/test_pii.py`
+  with 5 cases pinned to a 2 s `pytest.mark.timeout(2)` budget on
+  4 KB pathological inputs — these would have hung the v0.1.0
+  patterns for many seconds.
+
 ## [0.1.0] - 2026-05-04
 
 ### Added

@@ -10,7 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/ai-shield
+      # PyPI project name: studiomeyer-aishield (renamed from ai-shield
+      # in v0.1.0 because Bosch's aishield@0.1.7 blocked the simpler name).
+      # Trusted Publisher OIDC matches *this* URL — keep them in sync.
+      url: https://pypi.org/p/studiomeyer-aishield
     permissions:
       id-token: write     # Trusted Publishing OIDC
       contents: read
@@ -37,7 +40,9 @@ jobs:
         run: uv build
 
       - name: Generate Sigstore attestations
-        uses: actions/attest-build-provenance@v1
+        # v2 is the current major (mcp-armor S988 also pinned to v2).
+        # v1 still works but emits deprecation warnings as of GHA Q1 2026.
+        uses: actions/attest-build-provenance@v2
         with:
           subject-path: "dist/*"
 

@@ -26,13 +26,16 @@ No network, no external service, no runtime config drift.
 ## Install
 
 ```bash
-pip install studiomeyer-aishield                      # core
-pip install "studiomeyer-aishield[redis]"               # + Redis cost-tracker
-pip install "studiomeyer-aishield[postgres]"            # + asyncpg audit store
-pip install "studiomeyer-aishield[notebook]"            # + nest-asyncio for Jupyter
-pip install "studiomeyer-aishield[ml]"                  # + numpy for anomaly z-score
-pip install "studiomeyer-aishield[dev]"                 # + pytest, mypy, ruff
+pip install studiomeyer-aishield                  # core
+pip install "studiomeyer-aishield[redis]"          # + Redis cost-tracker
+pip install "studiomeyer-aishield[notebook]"       # + nest-asyncio for Jupyter
+pip install "studiomeyer-aishield[dev]"            # + pytest, mypy, ruff, twine
 ```
+
+The `[postgres]` and `[ml]` extras advertised in v0.1.0 were declared
+but not implemented and have been removed in v0.1.1. They are tracked
+for v0.2 (Postgres audit store via asyncpg, numpy-based anomaly
+z-score) in CHANGELOG "Known limitations".
 
 ## Quick Start
 
@@ -239,6 +242,31 @@ patterns, PII validators, and policy presets are byte-equivalent to:
 - [`ai-shield/packages/core/src/policy/engine.ts`](https://github.com/studiomeyer-io/ai-shield/blob/main/packages/core/src/policy/engine.ts)
 
 IBAN mod-97 and Luhn algorithms are public ISO 13616-1 / ISO 7812 references.
+
+## Status
+
+**v0.1.x — early production.** The scanner pipeline, PII validators,
+policy engine, cost tracker, audit logger and FastMCP server are
+stable enough for daily use as a guard layer in front of LLM calls.
+Features intentionally NOT in v0.1 are documented in CHANGELOG
+"Known limitations" and re-stated here for visibility:
+
+| Area | Status |
+|---|---|
+| Heuristic + PII scanner pipeline | shipped |
+| Policy presets (3) + tool allowlist | shipped |
+| In-memory + Redis cost-tracker | shipped |
+| Async batched audit logger | shipped, periodic-flush loop in v0.1.1 |
+| FastMCP server (3 tools) | shipped, FastMCP 2.x API |
+| **Output scanning** (LLM response → guard) | **v0.2 backlog** — currently only input is scanned |
+| **PostgreSQL audit store** (`asyncpg`) | **v0.2 backlog** — `[postgres]` extra removed in v0.1.1 |
+| **numpy-based anomaly z-score** | **v0.2 backlog** — current `detect_anomaly` uses stdlib `math` |
+| **FastMCP 3.0 + ToolAnnotations** | **v0.2 backlog** — readOnlyHint / openWorldHint per tool |
+| **`google-re2` ReDoS-safe engine** | **v0.2 backlog** — current patterns are ReDoS-hardened by hand |
+| Windows + Python 3.14 | not yet (3.10–3.13) |
+
+Security disclosure policy: [SECURITY.md](SECURITY.md). Contributing
+guide: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

@@ -95,8 +95,20 @@ class TestIBAN:
 
 
 class TestGermanTaxId:
-    def test_valid_11_digit_no_leading_zero(self) -> None:
-        assert validate_german_tax_id("12345678901") is True
+    """v0.1.1: now enforces the BMF mod-11/10 algorithm + distinct-digit
+    rule. Random 11-digit strings no longer test positive."""
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            # Verified by walking the BMF mod-11/10 algorithm.
+            # `26954371827`: body has exactly one pair (the two 2s),
+            # check digit 7 matches the algorithm output.
+            "26954371827",
+        ],
+    )
+    def test_known_valid(self, value: str) -> None:
+        assert validate_german_tax_id(value) is True
 
     def test_leading_zero_rejected(self) -> None:
         assert validate_german_tax_id("01234567890") is False
@@ -109,6 +121,30 @@ class TestGermanTaxId:
 
     def test_alpha_rejected(self) -> None:
         assert validate_german_tax_id("1234567890A") is False
+
+    def test_v0_1_0_false_positive_now_rejected(self) -> None:
+        """v0.1.0 returned True for any 11-digit string starting 1-9.
+        v0.1.1 must reject `12345678901` because it has 10 distinct
+        digits (no pair) and the check digit fails the BMF algorithm."""
+        assert validate_german_tax_id("12345678901") is False
+
+    def test_no_pair_rejected(self) -> None:
+        """First 10 digits all distinct → no pair_or_triple → reject."""
+        assert validate_german_tax_id("12345678905") is False
+
+    def test_quadruple_digit_rejected(self) -> None:
+        """A digit appearing 4+ times in the body → reject."""
+        # Four 1s in positions 0-3, real check digit irrelevant.
+        assert validate_german_tax_id("11112345670") is False
+
+    def test_two_pairs_rejected(self) -> None:
+        """Two distinct pairs (rule 2 says exactly one repeated digit)."""
+        assert validate_german_tax_id("11223456780") is False
+
+    def test_check_digit_mismatch_rejected(self) -> None:
+        """Same body as the known-valid test but wrong check digit."""
+        assert validate_german_tax_id("26954371820") is False
+        assert validate_german_tax_id("26954371829") is False
 
 
 class TestPhone:
@@ -124,6 +160,16 @@ class TestPhone:
 
     def test_too_many_digits(self) -> None:
         assert validate_phone("1" * 16) is False
+
+    @pytest.mark.parametrize(
+        "ip",
+        ["192.168.1.5", "8.8.8.8", "10.0.0.1", "203.0.113.5"],
+    )
+    def test_rejects_ipv4_format(self, ip: str) -> None:
+        """v0.1.1: phone validator rejects IPv4-format so the ip_address
+        pattern can claim them. Without this, the wider v0.1.1 phone
+        regex would silently steal IP detection."""
+        assert validate_phone(ip) is False
 
 
 class TestIPFilter:
@@ -269,3 +315,67 @@ class TestScannerEntities:
             "alice@example.com bob@example.com carol@example.com",
         )
         assert many.score > single.score
+
+
+# -- ReDoS regression (v0.1.1 H1 + H2 hardening) -------------------------
+
+
+class TestReDoSAdversarial:
+    """v0.1.1 hardening: the credit_card and phone regexes were rewritten
+    to remove nested optional quantifiers that caused catastrophic
+    backtracking on adversarial inputs. Each test pins a 2 s budget on
+    a 4 KB pathological input — the v0.1.0 patterns would hang for
+    many seconds (or minutes).
+    """
+
+    @pytest.mark.timeout(2)
+    @pytest.mark.asyncio
+    async def test_credit_card_no_redos_on_repeated_digit_separators(self) -> None:
+        # Pathological for `(?:\d[ -]?){12,18}` style patterns.
+        evil = "1 " * 2000
+        scanner = PIIScanner(PIIConfig(action="allow"))
+        result = await scanner.scan(evil)
+        # Any decision is acceptable as long as we don't time out.
+        assert result is not None
+
+    @pytest.mark.timeout(2)
+    @pytest.mark.asyncio
+    async def test_phone_no_redos_on_nested_separators(self) -> None:
+        # Pathological for `(?:\(?\d{2,4}\)?[\s.-]?){2,5}` style patterns.
+        evil = "(1)" * 1500
+        scanner = PIIScanner(PIIConfig(action="allow"))
+        result = await scanner.scan(evil)
+        assert result is not None
+
+    @pytest.mark.timeout(2)
+    @pytest.mark.asyncio
+    async def test_phone_no_redos_on_dash_dense_input(self) -> None:
+        evil = "1-" * 2000
+        scanner = PIIScanner(PIIConfig(action="allow"))
+        result = await scanner.scan(evil)
+        assert result is not None
+
+    def test_credit_card_real_visa_still_matches(self) -> None:
+        """Regression: hardened pattern still matches real card formats."""
+        from ai_shield.scanner.pii import PII_PATTERNS
+
+        cc_pattern = next(p for p in PII_PATTERNS if p.type == "credit_card")
+        for fmt in [
+            "4242 4242 4242 4242",  # Visa with spaces
+            "4242-4242-4242-4242",  # Visa with dashes
+            "4242424242424242",  # Visa raw
+            "378282246310005",  # Amex 15-digit raw
+        ]:
+            assert cc_pattern.regex.search(fmt) is not None, f"failed: {fmt}"
+
+    def test_phone_real_formats_still_match(self) -> None:
+        """Regression: hardened pattern still matches real phone formats."""
+        from ai_shield.scanner.pii import PII_PATTERNS
+
+        phone_pattern = next(p for p in PII_PATTERNS if p.type == "phone")
+        for fmt in [
+            "+49 30 12345678",
+            "(212) 555-1234",
+            "0049-30-1234567",
+        ]:
+            assert phone_pattern.regex.search(fmt) is not None, f"failed: {fmt}"

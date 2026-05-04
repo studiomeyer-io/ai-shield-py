@@ -131,9 +131,19 @@ class AuditLogger:
         self._task = loop.create_task(self._auto_flush())
 
     async def _auto_flush(self) -> None:
+        """Periodic flush loop. v0.1.0 ran this as one-shot which left
+        records stranded in the buffer if the next `log()` call did not
+        arrive — the per-call `_ensure_task()` re-arming was racy and
+        could miss windows when the buffer had data but the task had
+        finished and no new log came in. v0.1.1 runs as a real loop
+        until `close()` cancels it.
+        """
         try:
-            await asyncio.sleep(self._flush_interval)
-            await self.flush()
+            while not self._closed:
+                await asyncio.sleep(self._flush_interval)
+                if self._closed:
+                    return
+                await self.flush()
         except asyncio.CancelledError:
             pass
 

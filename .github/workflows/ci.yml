@@ -44,5 +44,8 @@ jobs:
       - name: Build sdist + wheel
         run: uv build
 
-      - name: Twine check
-        run: uv run python -m twine check dist/*
+      - name: Twine check (validates README rendering on PyPI)
+        # twine is in [project.optional-dependencies] dev — fixed in
+        # v0.1.1. v0.1.0 had this step but no twine in deps, so CI was
+        # red on every push.
+        run: uv run twine check dist/*
