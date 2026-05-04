@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 import pytest
 
@@ -13,20 +13,20 @@ from ai_shield.types import BudgetConfig
 
 class TestPeriodKey:
     def test_hourly_format(self) -> None:
-        moment = datetime(2026, 5, 4, 10, 30, tzinfo=UTC)
+        moment = datetime(2026, 5, 4, 10, 30, tzinfo=timezone.utc)
         assert _period_key("hourly", moment) == "2026050410"
 
     def test_daily_format(self) -> None:
-        moment = datetime(2026, 5, 4, 10, 30, tzinfo=UTC)
+        moment = datetime(2026, 5, 4, 10, 30, tzinfo=timezone.utc)
         assert _period_key("daily", moment) == "20260504"
 
     def test_monthly_format(self) -> None:
-        moment = datetime(2026, 5, 4, 10, 30, tzinfo=UTC)
+        moment = datetime(2026, 5, 4, 10, 30, tzinfo=timezone.utc)
         assert _period_key("monthly", moment) == "202605"
 
     def test_unknown_period_raises(self) -> None:
         with pytest.raises(ValueError):
-            _period_key("yearly", datetime.now(UTC))  # type: ignore[arg-type]
+            _period_key("yearly", datetime.now(timezone.utc))  # type: ignore[arg-type]
 
 
 class TestMemoryStore:
