@@ -3,7 +3,7 @@ requires = ["hatchling>=1.29.0"]
 build-backend = "hatchling.build"
 
 [project]
-name = "ai-shield"
+name = "studiomeyer-aishield"
 version = "0.1.0"
 description = "LLM security middleware: prompt-injection detection, PII protection, tool policy, cost tracking. Python port of ai-shield-core."
 readme = "README.md"

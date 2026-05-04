@@ -4,8 +4,8 @@ LLM input shield for prompt-injection, PII, tool-policy, cost-budget, and audit
 logging. Python 1:1 port of [ai-shield-core](https://github.com/studiomeyer-io/ai-shield)
 (TypeScript, MIT, 4 audit rounds).
 
-[![PyPI](https://img.shields.io/pypi/v/ai-shield.svg)](https://pypi.org/project/ai-shield/)
-[![Python](https://img.shields.io/pypi/pyversions/ai-shield.svg)](https://pypi.org/project/ai-shield/)
+[![PyPI](https://img.shields.io/pypi/v/studiomeyer-aishield.svg)](https://pypi.org/project/studiomeyer-aishield/)
+[![Python](https://img.shields.io/pypi/pyversions/studiomeyer-aishield.svg)](https://pypi.org/project/studiomeyer-aishield/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ## Why
@@ -26,12 +26,12 @@ No network, no external service, no runtime config drift.
 ## Install
 
 ```bash
-pip install ai-shield                        # core
-pip install "ai-shield[redis]"               # + Redis cost-tracker
-pip install "ai-shield[postgres]"            # + asyncpg audit store
-pip install "ai-shield[notebook]"            # + nest-asyncio for Jupyter
-pip install "ai-shield[ml]"                  # + numpy for anomaly z-score
-pip install "ai-shield[dev]"                 # + pytest, mypy, ruff
+pip install studiomeyer-aishield                      # core
+pip install "studiomeyer-aishield[redis]"               # + Redis cost-tracker
+pip install "studiomeyer-aishield[postgres]"            # + asyncpg audit store
+pip install "studiomeyer-aishield[notebook]"            # + nest-asyncio for Jupyter
+pip install "studiomeyer-aishield[ml]"                  # + numpy for anomaly z-score
+pip install "studiomeyer-aishield[dev]"                 # + pytest, mypy, ruff
 ```
 
 ## Quick Start
