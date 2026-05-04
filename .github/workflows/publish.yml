@@ -46,7 +46,21 @@ jobs:
         with:
           subject-path: "dist/*"
 
-      - name: Publish to PyPI
+      - name: Publish to PyPI (Trusted Publishing OIDC, preferred)
+        id: publish-trusted
+        continue-on-error: true
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           attestations: true
+          skip-existing: true
+
+      - name: Publish to PyPI (Token fallback if Trusted Publisher not yet set up)
+        if: steps.publish-trusted.outcome != 'success'
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          # `--skip-existing`: a manual `twine upload` before the tag-push
+          # must not paint the workflow red (S991 race fix — happened on
+          # v0.1.1 publish). Token via env-var, not CLI arg.
+          uv run twine upload dist/* --skip-existing
