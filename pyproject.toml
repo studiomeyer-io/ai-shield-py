@@ -1,0 +1,98 @@
+[build-system]
+requires = ["hatchling>=1.29.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ai-shield"
+version = "0.1.0"
+description = "LLM security middleware: prompt-injection detection, PII protection, tool policy, cost tracking. Python port of ai-shield-core."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10,<3.14"
+authors = [
+  { name = "Matthias Meyer (StudioMeyer)", email = "matthias@studiomeyer.io" },
+]
+keywords = [
+  "llm",
+  "security",
+  "prompt-injection",
+  "pii",
+  "mcp",
+  "ai-safety",
+  "guardrails",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Security",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Typing :: Typed",
+]
+dependencies = [
+  "pydantic>=2.0.0,<3.0.0",
+  "mcp>=1.27.0,<2.0.0",
+]
+
+[project.optional-dependencies]
+redis = ["redis>=5.0.0"]
+postgres = ["asyncpg>=0.31.0"]
+notebook = ["nest-asyncio>=1.5.0"]
+ml = ["numpy>=1.26.0"]
+dev = [
+  "pytest>=8.0.0",
+  "pytest-asyncio>=0.23.0",
+  "pytest-cov>=4.0.0",
+  "pytest-timeout>=2.3.0",
+  "ruff>=0.6.0",
+  "mypy>=1.10.0",
+]
+
+[project.scripts]
+ai-shield-mcp = "ai_shield.mcp_server:main"
+
+[project.urls]
+Homepage = "https://github.com/studiomeyer-io/ai-shield-py"
+Repository = "https://github.com/studiomeyer-io/ai-shield-py"
+Issues = "https://github.com/studiomeyer-io/ai-shield-py/issues"
+Changelog = "https://github.com/studiomeyer-io/ai-shield-py/blob/main/CHANGELOG.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ai_shield"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "src/ai_shield",
+  "tests",
+  "README.md",
+  "LICENSE",
+  "CHANGELOG.md",
+  "pyproject.toml",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+timeout = 5
+addopts = [
+  "--strict-markers",
+  "-ra",
+]
+
+[tool.coverage.run]
+source = ["src/ai_shield"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+  "pragma: no cover",
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError",
+  "\\.\\.\\.",
+]
