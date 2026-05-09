@@ -1,6 +1,13 @@
 # ai-shield (Python)
 
-LLM input shield for prompt-injection, PII, tool-policy, cost-budget, and audit
+
+<!-- badges -->
+[![PyPI version](https://img.shields.io/pypi/v/studiomeyer-aishield?style=flat-square&color=3776AB&logo=pypi&logoColor=white&label=PyPI)](https://pypi.org/project/studiomeyer-aishield/)
+[![PyPI downloads](https://img.shields.io/pypi/dm/studiomeyer-aishield?style=flat-square&color=3776AB&logo=pypi&logoColor=white&label=installs%2Fmo)](https://pypi.org/project/studiomeyer-aishield/)
+![License](https://img.shields.io/github/license/studiomeyer-io/ai-shield-py?style=flat-square&color=22c55e&label=license)
+![Last commit](https://img.shields.io/github/last-commit/studiomeyer-io/ai-shield-py?style=flat-square&color=88c0d0&label=updated)
+![GitHub stars](https://img.shields.io/github/stars/studiomeyer-io/ai-shield-py?style=flat-square&color=ffd700&logo=github&label=stars)
+<!-- /badges -->LLM input shield for prompt-injection, PII, tool-policy, cost-budget, and audit
 logging. Python 1:1 port of [ai-shield-core](https://github.com/studiomeyer-io/ai-shield)
 (TypeScript, MIT, 4 audit rounds).
 
