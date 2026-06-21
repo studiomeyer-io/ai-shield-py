@@ -22,9 +22,25 @@ from ai_shield.scanner.heuristic import (
 
 class TestCatalogueShape:
     def test_total_pattern_count(self) -> None:
-        # 42 patterns total across 8 categories (tool_abuse is one of the 8,
-        # not additional). Mirrors `packages/core/src/scanner/heuristic.ts`.
-        assert len(PATTERNS) == 42
+        # 50 patterns total across the same 8 categories: the 42-rule base
+        # catalogue + 4 localized overrides (INJ-DE/ES/FR) + 4 policy-puppetry
+        # fake-config delimiters (DELIM-PP-1..4). Mirrors the detectors added in
+        # ai-shield-core/heuristic.ts (`oss-improve/injection-detection-gaps`).
+        assert len(PATTERNS) == 50
+
+    def test_localized_and_policy_puppetry_ids_present(self) -> None:
+        ids = {p.id for p in PATTERNS}
+        for new_id in (
+            "INJ-DE-1",
+            "INJ-DE-2",
+            "INJ-ES-1",
+            "INJ-FR-1",
+            "DELIM-PP-1",
+            "DELIM-PP-2",
+            "DELIM-PP-3",
+            "DELIM-PP-4",
+        ):
+            assert new_id in ids, new_id
 
     def test_ids_are_unique(self) -> None:
         ids = [p.id for p in PATTERNS]

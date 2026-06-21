@@ -1,8 +1,10 @@
 """Heuristic prompt-injection scanner.
 
-1:1 port of `packages/core/src/scanner/heuristic.ts` — 42 patterns across
-8 categories with NFKD + zero-width + combining-mark + homoglyph
-normalization.
+Port of `packages/core/src/scanner/heuristic.ts` — 50 regex patterns across
+8 categories with NFKD + zero-width + combining-mark + homoglyph + Unicode
+TAG-block normalization, plus three non-regex signals: invisible TAG-char
+smuggling (TAG-001), forged chat-transcript turns (DELIM-PP-5), and a lossy
+leetspeak re-test for high-value categories.
 
 Patterns are anchored, conservative, and timeout-tested via pytest-timeout.
 """
@@ -74,13 +76,127 @@ HOMOGLYPH_MAP: dict[str, str] = {
     "Χ": "X",
 }
 
-ZERO_WIDTH_RE = re.compile(r"[\u200B\u200C\u200D\u2060\uFEFF]")
-COMBINING_RE = re.compile(r"[\u0300-\u036F]")
+ZERO_WIDTH_RE = re.compile(r"[​‌‍⁠﻿]")
+COMBINING_RE = re.compile(r"[̀-ͯ]")
+
+# Unicode TAG block (U+E0000..U+E007F). Invisible code points with no
+# legitimate use in prose. U+E0020..U+E007E are tag-equivalents of ASCII
+# 0x20..0x7E, so an attacker can spell "ignore previous instructions" entirely
+# in tag chars: it renders as nothing but a model still reads the ASCII intent.
+TAG_RANGE_RE = re.compile("[\U000E0000-\U000E007F]")
+
+# Well-formed flag / subdivision-tag sequence: a base WAVING BLACK FLAG
+# (U+1F3F4) followed by a run of one or more tag chars (U+E0000..U+E007E)
+# terminated by U+E007F (CANCEL TAG). This is exactly how Unicode encodes
+# subdivision flags like the Wales/Scotland/Texas flags -- legitimate emoji,
+# not smuggling. The run is length-bounded (1..16) so it stays ReDoS-safe.
+FLAG_TAG_SEQUENCE_RE = re.compile("\U0001F3F4[\U000E0000-\U000E007E]{1,16}\U000E007F")
+
+
+def de_tag(text: str) -> str:
+    """Decode Unicode TAG-block smuggling back to the ASCII it carries.
+
+    U+E0020..U+E007E carry ASCII characters 0x20..0x7E (subtract 0xE0000).
+    U+E0001 (language tag) and U+E007F (cancel tag) are control points with no
+    ASCII payload and are dropped. Returns the ASCII the invisible tag run was
+    hiding, so the normal injection patterns can scan it.
+    """
+    # Fast path: most inputs have no tag chars at all.
+    if not TAG_RANGE_RE.search(text):
+        return text
+    out: list[str] = []
+    for ch in text:
+        cp = ord(ch)
+        if 0xE0000 <= cp <= 0xE007F:
+            ascii_cp = cp - 0xE0000
+            # 0x20..0x7E map to printable ASCII; the rest (E0000/E0001/E007F) drop.
+            if 0x20 <= ascii_cp <= 0x7E:
+                out.append(chr(ascii_cp))
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+def has_tag_chars(text: str) -> bool:
+    """True if the input contains any Unicode TAG-block char (invisible smuggling)."""
+    return TAG_RANGE_RE.search(text) is not None
+
+
+def strip_well_formed_tag_sequences(text: str) -> str:
+    """Remove every well-formed flag/subdivision-tag sequence from the input.
+
+    Whatever tag chars are LEFT over are standalone or smuggled -- a bare tag
+    run spelling ASCII, a tag char without its U+1F3F4 base, or a sequence with
+    no CANCEL-TAG terminator. Used so the tag-presence signal only fires on
+    those, not on legitimate flag emoji.
+
+    This only suppresses the *presence* signal. The actual smuggled ASCII is
+    still surfaced independently by `de_tag` (which decodes the tag-encoded
+    characters regardless of any U+1F3F4 wrapper), so an attacker cannot hide an
+    instruction by disguising it as a flag sequence.
+    """
+    if not TAG_RANGE_RE.search(text):
+        return text
+    return FLAG_TAG_SEQUENCE_RE.sub("", text)
+
+
+def has_standalone_tag_chars(text: str) -> bool:
+    """True if the input has tag chars NOT part of a well-formed flag sequence.
+
+    I.e. standalone or smuggled invisible tag chars (the real attack indicator).
+    Legitimate flag emoji return False.
+    """
+    if not TAG_RANGE_RE.search(text):
+        return False
+    return TAG_RANGE_RE.search(strip_well_formed_tag_sequences(text)) is not None
+
+
+# Lossy leetspeak fold: maps the common char-substitutions an attacker uses to
+# dodge literal patterns ("1gn0r3 pr3v10us 1nstruct10ns" -> "ignore previous
+# instructions"). Run as an ADDITIONAL view, never as a replacement, and only
+# the high-value injection categories are re-tested against it -- folding digits
+# to letters in ordinary prose ("buy 3 items for 5 dollars" -> "buy e items for
+# s dollars") would otherwise generate noise.
+#
+# 1->i (dominant in injection payloads like "1nstruct10ns"); the other digits
+# are unambiguous. @->a and $->s cover the classic symbol substitutions.
+LEET_MAP: dict[str, str] = {
+    "0": "o",
+    "1": "i",
+    "3": "e",
+    "4": "a",
+    "5": "s",
+    "7": "t",
+    "@": "a",
+    "$": "s",
+}
+_LEET_RE = re.compile(r"[013457@$]")
+
+
+def leet_decode(text: str) -> str:
+    """Fold common leetspeak char-substitutions back to plain letters."""
+    return _LEET_RE.sub(lambda m: LEET_MAP[m.group(0)], text)
 
 
 def normalize(text: str) -> str:
-    """Normalize text: NFKD + strip zero-width + strip combining + homoglyphs."""
-    out = unicodedata.normalize("NFKD", text)
+    """Normalize text for pattern matching.
+
+    Order matters:
+      1. Decode Unicode TAG-block smuggling so invisible tag chars surface as
+         the ASCII they carry ("ignore previous instructions" hidden in U+E00xx).
+      2. NFKD folds compatibility forms (fullwidth, ligatures, math-bold) AND
+         decomposes precomposed accented letters into base + combining mark.
+      3. Strip zero-width chars so "ig<ZWSP>nore" collapses to "ignore".
+      4. Strip combining marks (diacritics) left behind by NFKD.
+      5. Map remaining Cyrillic/Greek look-alikes to Latin.
+
+    Side effect of step 2+4: accented Latin letters lose their diacritic and
+    fold to the base letter ("precedentes"; German umlauts decompose so
+    "ueberschreibe" reads as written). The localized injection patterns below
+    are written against this folded form.
+    """
+    out = de_tag(text)
+    out = unicodedata.normalize("NFKD", out)
     out = ZERO_WIDTH_RE.sub("", out)
     out = COMBINING_RE.sub("", out)
     out = "".join(HOMOGLYPH_MAP.get(c, c) for c in out)
@@ -101,7 +217,9 @@ class PatternRule:
 
 _FLAGS = re.IGNORECASE | re.UNICODE
 
-# All 42 patterns — byte-equivalent to ai-shield-core/heuristic.ts.
+# 50 patterns: the 42-rule base catalogue plus DE/ES/FR localized overrides
+# (INJ-DE/ES/FR) and policy-puppetry fake-config delimiters (DELIM-PP-1..4),
+# ported from ai-shield-core/heuristic.ts.
 PATTERNS: tuple[PatternRule, ...] = (
     # --- instruction_override (8) ---
     PatternRule(
@@ -450,6 +568,202 @@ PATTERNS: tuple[PatternRule, ...] = (
         0.7,
         "Read sensitive system file",
     ),
+    # --- Localized instruction override (DE / ES / FR) -------------------
+    # The English INJ-* rules above miss German/Spanish/French "ignore previous
+    # instructions" entirely, so a non-English payload scored `allow`. Patterns
+    # run against the NFKD-folded text (accents/umlauts already stripped:
+    # "praezedenzfall" -> "prazedenzfall", "precedentes" stays "precedentes"),
+    # so they spell the base-letter forms. The bounded `[\s\S]{0,40}?` gap is
+    # lazy + length-capped -> ReDoS-safe. An override verb is REQUIRED before the
+    # object noun, so benign prose that merely mentions "Anweisungen" /
+    # "instrucciones" / "instructions" does not trip them. Kept in the existing
+    # `instruction_override` category so the 8-category invariant holds.
+    PatternRule(
+        "INJ-DE-1",
+        "instruction_override",
+        # Negative lookahead after the verb excludes a negator in the gap:
+        # "Vergiss NICHT, die vorherigen Anweisungen zu lesen" is benign and
+        # must not block, while "Vergiss alle vorherigen Anweisungen" (no
+        # negator) still fires. Bounded + lazy -> ReDoS-safe.
+        re.compile(
+            r"\b(?:ignoriere?|missachte|vergiss|verwirf|uebergehe|ueberschreibe)\b"
+            r"(?![\s\S]{0,40}?\b(?:nicht|keine?)\b)"
+            r"[\s\S]{0,40}?"
+            r"\b(?:alle[ns]?|deine|die|jegliche)?\s*"
+            r"(?:vorherigen?|bisherigen?|obigen?|frueheren?|vorhergehenden?|urspruenglichen?)\s+"
+            r"(?:anweisungen?|anordnungen?|befehle?|regeln?|vorgaben?|instruktionen?)",
+            _FLAGS,
+        ),
+        0.85,
+        "German instruction override",
+    ),
+    PatternRule(
+        "INJ-DE-2",
+        "instruction_override",
+        re.compile(
+            r"\bdu\s+bist\s+(?:jetzt|ab\s+jetzt|nun)\s+(?:ein|eine|der|die|das|mein|meine)\b",
+            _FLAGS,
+        ),
+        0.7,
+        "German role takeover (du bist jetzt ...)",
+    ),
+    PatternRule(
+        "INJ-ES-1",
+        "instruction_override",
+        re.compile(
+            r"\b(?:ignora|olvida|descarta|desestima|omite|anula)\b"
+            r"[\s\S]{0,40}?"
+            r"\b(?:todas?\s+)?(?:las?\s+)?"
+            r"(?:instrucciones?|ordenes?|reglas?|directrices?|indicaciones?)\s+"
+            r"(?:anteriores?|previas?|precedentes?|de\s+arriba)",
+            _FLAGS,
+        ),
+        0.85,
+        "Spanish instruction override",
+    ),
+    PatternRule(
+        "INJ-FR-1",
+        "instruction_override",
+        # "ignore" + "instructions" are identical in English and French, so the
+        # shared verb path requires a French determiner (les/tes/mes) to avoid
+        # double-firing on English "ignore previous instructions" (INJ-001
+        # already covers that). French-only verbs match the object noun directly.
+        re.compile(
+            r"\b(?:ignore\s+(?:toutes?\s+)?(?:les|tes|mes)\s+"
+            r"(?:instructions?|consignes?|directives?|regles?|ordres?)"
+            r"|(?:oublie|neglige|fais\s+abstraction\s+de|ne\s+tiens?\s+pas\s+compte\s+des?)\s+"
+            r"(?:toutes?\s+)?(?:les?\s+|tes\s+|mes\s+)?"
+            r"(?:instructions?|consignes?|directives?|regles?|ordres?))",
+            _FLAGS,
+        ),
+        0.85,
+        "French instruction override",
+    ),
+    # --- Policy-puppetry / fake-config delimiters -----------------------
+    # HiddenLayer 2025 "Policy Puppetry" universal bypass: the attacker pastes a
+    # fake config block (interaction-config / allowed-modes / blocked-strings)
+    # so the model treats user content as authoritative configuration. These
+    # previously scored `allow` -- only INJ-031's bare <system> tag was covered.
+    # Tags are specific enough (hyphenated config names, privileged <role>) that
+    # ordinary HTML/JSX prose does not trip them. Kept in `delimiter_injection`.
+    PatternRule(
+        "DELIM-PP-1",
+        "delimiter_injection",
+        re.compile(
+            r"<\s*/?\s*(?:interaction-config|interaction_config|system-config|model-config|ai-config)\b",
+            _FLAGS,
+        ),
+        0.9,
+        "Fake interaction-config block",
+    ),
+    PatternRule(
+        "DELIM-PP-2",
+        "delimiter_injection",
+        re.compile(
+            r"<\s*/?\s*(?:allowed-modes|allowed_modes|blocked-modes|allowed-responses)\b",
+            _FLAGS,
+        ),
+        0.85,
+        "Fake allowed-modes directive",
+    ),
+    PatternRule(
+        "DELIM-PP-3",
+        "delimiter_injection",
+        re.compile(
+            r"<\s*/?\s*(?:blocked-strings|blocked_strings|blocked-words|forbidden-strings|blocked-responses)\b",
+            _FLAGS,
+        ),
+        0.85,
+        "Fake blocked-strings directive",
+    ),
+    PatternRule(
+        "DELIM-PP-4",
+        "delimiter_injection",
+        re.compile(
+            r"<\s*role\s*>\s*(?:god|dan|admin|root|developer|jailbroken|unrestricted|sudo)\b",
+            _FLAGS,
+        ),
+        0.85,
+        "Fake privileged <role> assignment",
+    ),
+    # DELIM-PP-5 (forged chat transcript turn) is NOT a plain regex rule -- a
+    # single benign <assistant>...</assistant> / <human>...</human> pair (a
+    # quoted snippet, a doc example) is common and must not block on its own.
+    # It is evaluated by `detect_forged_transcript()` in scan(), which fires
+    # only with an ATTACK CO-SIGNAL (override keyword inside a turn, OR >=2
+    # forged turns). A sibling policy-config tag is already covered by
+    # DELIM-PP-1/2/3. See the dedicated signal block in scan().
+)
+
+
+# -- Forged chat-transcript detection (DELIM-PP-5) ------------------------
+
+# A full open+close <assistant>/<user>/<human> tag PAIR. The bounded lazy gap
+# `{0,200}?` keeps it ReDoS-safe; the backreference requires the close tag to
+# match the open tag, so "<user>...</assistant>" alone isn't a pair.
+_FORGED_TURN_PAIR_RE = re.compile(
+    r"<(assistant|user|human)\b[^>]*>([\s\S]{0,200}?)</\1>",
+    re.IGNORECASE,
+)
+_CLOSING_TURN_RE = re.compile(r"</(?:assistant|user|human)>", re.IGNORECASE)
+
+# Override / privileged / compliance phrasing that turns a benign-looking
+# transcript snippet into a policy-puppetry payload. Specific enough that an
+# ordinary quoted reply ("<assistant>Hello, how can I help?</assistant>")
+# doesn't match.
+_OVERRIDE_IN_TURN_RE = re.compile(
+    r"\b(?:ignore|disregard|bypass|override|jailbroken|jailbreak|unrestricted"
+    r"|no\s+(?:restrictions?|filters?|limits?|rules?)"
+    r"|without\s+(?:restrictions?|refus\w+|filter\w+)"
+    r"|comply\s+fully|will\s+comply"
+    r"|i\s+will\s+(?:now\s+)?(?:ignore|comply|obey|bypass)"
+    r"|developer\s+mode|dev\s+mode\s+(?:active|enabled|on)"
+    r"|debug\s+mode|god\s+mode|sudo\s+mode|admin\s+mode"
+    r"|safety\s+(?:rules?|guidelines?|filters?)"
+    r"|dan\b|do\s+anything\s+now|obey\s+(?:all|every)"
+    r"|reveal\s+(?:your|the)\s+(?:system\s+)?prompt)",
+    re.IGNORECASE,
+)
+
+
+def detect_forged_transcript(text: str) -> bool:
+    """Detect a FORGED chat transcript (policy-puppetry, HiddenLayer 2025).
+
+    Returns True only when a real attack co-signal is present, so a lone benign
+    turn pair (a quoted transcript snippet, a doc example) does NOT trip it:
+      (a) an override/privileged keyword inside any turn's content, OR
+      (b) >=2 distinct forged turns (a fabricated multi-turn exchange).
+    A sibling policy-config tag is intentionally NOT required here -- it already
+    blocks via DELIM-PP-1/2/3. Iteration is capped (64) for defense-in-depth.
+    """
+    # Fast path: no closing turn tag -> no pair possible.
+    if not _CLOSING_TURN_RE.search(text):
+        return False
+    turn_bodies: list[str] = []
+    for guard, m in enumerate(_FORGED_TURN_PAIR_RE.finditer(text)):
+        if guard >= 64:
+            break
+        turn_bodies.append(m.group(2) or "")
+    if not turn_bodies:
+        return False
+    # (a) override keyword inside a turn -> single forged turn is enough.
+    if any(_OVERRIDE_IN_TURN_RE.search(body) for body in turn_bodies):
+        return True
+    # (b) two or more forged turns -> fabricated exchange.
+    return len(turn_bodies) >= 2
+
+
+# Categories where a lossy leetspeak re-test is worth the FP risk. Excludes
+# encoding_evasion (INJ-021 long-base64 -- folding its digits is noise) and the
+# low-confidence context/output/delimiter categories. Python folds the localized
+# DE/ES/FR rules into `instruction_override`, so they are covered here too.
+_LEET_SENSITIVE: frozenset[str] = frozenset(
+    {
+        "instruction_override",
+        "role_manipulation",
+        "system_prompt_extraction",
+        "tool_abuse",
+    }
 )
 
 
@@ -495,6 +809,12 @@ class HeuristicScanner:
 
     async def scan(self, text: str, _ctx: dict[str, Any] | None = None) -> ScannerResult:
         normalized = normalize(text)
+        # Second view that folds leetspeak ("1gn0r3 pr3v10us" -> "ignore
+        # previous"). ADDITIONAL pass, only computed when it differs, and only
+        # the high-value categories are re-tested -- digit->letter folding in
+        # benign prose ("buy 3 items for 5 dollars") would otherwise add noise.
+        leet_view = leet_decode(normalized)
+        leet_differs = leet_view != normalized
         violations: list[Violation] = []
         score = 0.0
 
@@ -514,6 +834,73 @@ class HeuristicScanner:
                         },
                     )
                 )
+            elif (
+                leet_differs
+                and rule.category in _LEET_SENSITIVE
+                and rule.regex.search(leet_view)
+            ):
+                # Matched only after leetspeak folding -> char-substitution evasion.
+                score += rule.weight
+                violations.append(
+                    Violation(
+                        type="prompt_injection",
+                        severity=self._severity(rule.weight),
+                        detector=f"heuristic:{rule.id}",
+                        message=rule.description,
+                        confidence=min(rule.weight, 1.0),
+                        metadata={
+                            "category": rule.category,
+                            "pattern_id": rule.id,
+                            "evasion": "leetspeak",
+                        },
+                    )
+                )
+
+        # Unicode TAG-block smuggling signal. `normalize` already de-tagged the
+        # payload so any hidden ASCII instruction was scored by the rules above
+        # -- but the mere PRESENCE of invisible tag chars in user text is itself
+        # an attack indicator (no benign prose uses U+E00xx). Well-formed
+        # flag/subdivision emoji (base U+1F3F4 ... U+E007F) are excluded; only
+        # standalone/smuggled tag chars count. A smuggled instruction disguised
+        # as a flag is still caught above, because de_tag decodes its ASCII
+        # regardless of the wrapper. Run on the ORIGINAL input (normalize strips
+        # the tag chars).
+        if has_standalone_tag_chars(text):
+            score += 0.9
+            violations.append(
+                Violation(
+                    type="prompt_injection",
+                    severity="critical",
+                    detector="heuristic:TAG-001",
+                    message="Invisible Unicode TAG characters detected (smuggling)",
+                    metadata={
+                        "category": "encoding_evasion",
+                        "pattern_id": "TAG-001",
+                    },
+                    confidence=0.9,
+                )
+            )
+
+        # Forged chat-transcript signal (DELIM-PP-5). Fires only with an attack
+        # co-signal (override keyword inside a turn, or >=2 forged turns) so a
+        # lone benign transcript pair stays allowed. Run on the normalized view
+        # so homoglyph/zero-width evasion in the turn content can't dodge the
+        # override-keyword check.
+        if detect_forged_transcript(normalized):
+            score += 0.85
+            violations.append(
+                Violation(
+                    type="prompt_injection",
+                    severity="critical",
+                    detector="heuristic:DELIM-PP-5",
+                    message="Forged chat transcript turn",
+                    metadata={
+                        "category": "delimiter_injection",
+                        "pattern_id": "DELIM-PP-5",
+                    },
+                    confidence=0.85,
+                )
+            )
 
         if self.config.structural_bonus:
             score += _structural_bonus(normalized)
