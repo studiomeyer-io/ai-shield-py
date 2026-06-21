@@ -83,14 +83,14 @@ COMBINING_RE = re.compile(r"[̀-ͯ]")
 # legitimate use in prose. U+E0020..U+E007E are tag-equivalents of ASCII
 # 0x20..0x7E, so an attacker can spell "ignore previous instructions" entirely
 # in tag chars: it renders as nothing but a model still reads the ASCII intent.
-TAG_RANGE_RE = re.compile("[\U000E0000-\U000E007F]")
+TAG_RANGE_RE = re.compile("[\U000e0000-\U000e007f]")
 
 # Well-formed flag / subdivision-tag sequence: a base WAVING BLACK FLAG
 # (U+1F3F4) followed by a run of one or more tag chars (U+E0000..U+E007E)
 # terminated by U+E007F (CANCEL TAG). This is exactly how Unicode encodes
 # subdivision flags like the Wales/Scotland/Texas flags -- legitimate emoji,
 # not smuggling. The run is length-bounded (1..16) so it stays ReDoS-safe.
-FLAG_TAG_SEQUENCE_RE = re.compile("\U0001F3F4[\U000E0000-\U000E007E]{1,16}\U000E007F")
+FLAG_TAG_SEQUENCE_RE = re.compile("\U0001f3f4[\U000e0000-\U000e007e]{1,16}\U000e007f")
 
 
 def de_tag(text: str) -> str:
@@ -834,11 +834,7 @@ class HeuristicScanner:
                         },
                     )
                 )
-            elif (
-                leet_differs
-                and rule.category in _LEET_SENSITIVE
-                and rule.regex.search(leet_view)
-            ):
+            elif leet_differs and rule.category in _LEET_SENSITIVE and rule.regex.search(leet_view):
                 # Matched only after leetspeak folding -> char-substitution evasion.
                 score += rule.weight
                 violations.append(
