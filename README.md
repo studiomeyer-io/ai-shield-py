@@ -255,8 +255,12 @@ src/ai_shield/
 
 ## Provenance
 
-This is a 1:1 Python port of the TypeScript implementation. All heuristic
-patterns, PII validators, and policy presets are byte-equivalent to:
+This is a Python port of the TypeScript implementation. The PII validators
+and policy presets are byte-equivalent; the heuristic scanner tracks the
+TS detector set (NFKD/zero-width/combining/homoglyph normalization, Unicode
+TAG-block de-smuggling, DE/ES/FR localized overrides, policy-puppetry /
+forged-transcript, and a lossy leetspeak re-test) while keeping its own
+pattern IDs and weights. Source of truth:
 
 - [`ai-shield/packages/core/src/scanner/heuristic.ts`](https://github.com/studiomeyer-io/ai-shield/blob/main/packages/core/src/scanner/heuristic.ts)
 - [`ai-shield/packages/core/src/scanner/pii.ts`](https://github.com/studiomeyer-io/ai-shield/blob/main/packages/core/src/scanner/pii.ts)

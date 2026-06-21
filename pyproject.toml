@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "studiomeyer-aishield"
-version = "0.1.1"
+version = "0.2.0"
 description = "LLM security middleware: prompt-injection detection, PII protection, tool policy, cost tracking. Python port of ai-shield-core."
 readme = "README.md"
 license = "MIT"
