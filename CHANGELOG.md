@@ -5,6 +5,55 @@ All notable changes to ai-shield-py will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-06-21
+
+Detection-parity pass — ports the four new injection detectors from the
+TypeScript `ai-shield-core` (branch `oss-improve/injection-detection-gaps`)
+to reach feature parity. Additive only: no API breakage, no behavioural
+regression on the existing 42-rule catalogue. Test count grows 311 → 376
+(+65). Minor bump under SemVer for the new functionality.
+
+### Added
+
+- **Unicode TAG-block smuggling (TAG-001).** `normalize()` now de-tags
+  the invisible Unicode TAG block (U+E0000–U+E007F) before NFKD, so an
+  instruction spelled entirely in tag chars surfaces as the ASCII it
+  carries and is scored by the normal rules. A standalone-presence signal
+  (`heuristic:TAG-001`, score 0.9) fires on bare/smuggled tag runs.
+  Well-formed flag/subdivision emoji (base U+1F3F4 … U+E007F, e.g. the
+  Wales/Scotland/Texas flags) are excluded via
+  `strip_well_formed_tag_sequences()`; an instruction disguised inside a
+  flag wrapper is still decoded and caught. New public helpers: `de_tag`,
+  `has_tag_chars`, `has_standalone_tag_chars`,
+  `strip_well_formed_tag_sequences`.
+- **Multilingual instruction overrides (DE / ES / FR).** Four new rules
+  (`INJ-DE-1`, `INJ-DE-2`, `INJ-ES-1`, `INJ-FR-1`) in the existing
+  `instruction_override` category catch German/Spanish/French "ignore
+  previous instructions" payloads that the English rules missed. `INJ-DE-1`
+  is negator-aware — "Vergiss **nicht**, die vorherigen Anweisungen zu
+  lesen" stays allowed via a bounded negative lookahead.
+- **Policy-puppetry / forged-transcript (DELIM-PP-1..5).** Four fake-config
+  delimiter rules (`interaction-config`, `allowed-modes`, `blocked-strings`,
+  privileged `<role>`) in `delimiter_injection`, plus a forged chat-
+  transcript signal (`heuristic:DELIM-PP-5`, score 0.85) via
+  `detect_forged_transcript()`. The transcript signal requires an attack
+  co-signal (override keyword inside a turn, OR ≥2 forged turns), so a lone
+  benign `<assistant>…</assistant>` pair stays allowed.
+- **Leetspeak char-substitution evasion.** A lossy `leet_decode()` view
+  ("1gn0r3 pr3v10us 1nstruct10ns" → "ignore previous instructions") is
+  re-tested as an ADDITIONAL pass, scoped to the high-value categories
+  (`instruction_override`, `role_manipulation`,
+  `system_prompt_extraction`, `tool_abuse`). Benign digit text
+  ("buy 3 for 5 dollars") is unaffected — `encoding_evasion` is excluded
+  from the leet re-test. Matches tagged `metadata.evasion == "leetspeak"`.
+
+The catalogue grows 42 → 50 regex patterns (all in the existing 8
+categories); the three non-regex signals (TAG-001, DELIM-PP-5, leetspeak
+re-test) live in `HeuristicScanner.scan`. Each detector ships with both a
+bypass-now-caught test and a benign false-positive guard test in
+`tests/test_detection_parity.py`, plus ReDoS hard-caps for the new
+patterns.
+
 ## [0.1.1] - 2026-05-04
 
 Cold cross-review hardening pass — 3-agent sweep (Analyst + Critic +
