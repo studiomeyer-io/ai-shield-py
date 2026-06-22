@@ -55,3 +55,4 @@ dmypy.json
 # Env
 .env
 .env.local
+.archtracker/

@@ -21,7 +21,32 @@ ViolationType = Literal[
     "budget_exceeded",
     "rate_limit",
     "anomaly",
+    # Indirect injection (ingestion scanner)
+    "ingested_injection",
+    # Output side (OWASP LLM05 / LLM02)
+    "output_injection",
+    "secret_leak",
+    "system_prompt_leak",
+    "jailbreak_indicator",
 ]
+
+IngestionSource = Literal[
+    "user",
+    "rag",
+    "tool_desc",
+    "tool_output",
+    "memory",
+    "web",
+    "agent_output",
+]
+"""Provenance of scanned content — drives the ingestion scanner's per-source
+threshold and extra patterns. Distinct from `tool_desc` (static schema),
+`tool_output` is the runtime result a tool returned (the dominant indirect-
+injection channel in agentic loops)."""
+
+OutputSink = Literal["sql", "shell", "html", "template"]
+"""Downstream sink an LLM output may flow into — narrows the output-injection
+check (OWASP LLM05)."""
 
 
 class Violation(BaseModel):

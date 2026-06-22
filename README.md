@@ -219,7 +219,9 @@ src/ai_shield/
 ├── types.py             # Pydantic v2 models
 ├── mcp_server.py        # FastMCP server with 3 tools
 ├── scanner/
-│   ├── heuristic.py     # 42 prompt-injection patterns + normalization
+│   ├── heuristic.py     # 50 prompt-injection patterns + normalization + typoglycemia
+│   ├── ingestion.py     # indirect-injection (RAG / tool-output / memory / web)
+│   ├── output.py        # LLM05 output guard (secret / injection / leak / jailbreak / PII)
 │   ├── pii.py           # 8 PII types + 5 validators
 │   ├── chain.py         # async sequential orchestrator (early-exit)
 │   └── canary.py        # canary token inject + leak-detection
@@ -259,10 +261,14 @@ This is a Python port of the TypeScript implementation. The PII validators
 and policy presets are byte-equivalent; the heuristic scanner tracks the
 TS detector set (NFKD/zero-width/combining/homoglyph normalization, Unicode
 TAG-block de-smuggling, DE/ES/FR localized overrides, policy-puppetry /
-forged-transcript, and a lossy leetspeak re-test) while keeping its own
-pattern IDs and weights. Source of truth:
+forged-transcript, a lossy leetspeak re-test, and a typoglycemia
+anagram-fold) while keeping its own pattern IDs and weights. The indirect-
+injection (`ingestion.py`) and output-guard (`output.py`) scanners port the
+matching TS modules. Source of truth:
 
 - [`ai-shield/packages/core/src/scanner/heuristic.ts`](https://github.com/studiomeyer-io/ai-shield/blob/main/packages/core/src/scanner/heuristic.ts)
+- [`ai-shield/packages/core/src/scanner/ingestion.ts`](https://github.com/studiomeyer-io/ai-shield/blob/main/packages/core/src/scanner/ingestion.ts)
+- [`ai-shield/packages/core/src/scanner/output.ts`](https://github.com/studiomeyer-io/ai-shield/blob/main/packages/core/src/scanner/output.ts)
 - [`ai-shield/packages/core/src/scanner/pii.ts`](https://github.com/studiomeyer-io/ai-shield/blob/main/packages/core/src/scanner/pii.ts)
 - [`ai-shield/packages/core/src/policy/engine.ts`](https://github.com/studiomeyer-io/ai-shield/blob/main/packages/core/src/policy/engine.ts)
 
@@ -270,11 +276,11 @@ IBAN mod-97 and Luhn algorithms are public ISO 13616-1 / ISO 7812 references.
 
 ## Status
 
-**v0.1.x — early production.** The scanner pipeline, PII validators,
-policy engine, cost tracker, audit logger and FastMCP server are
-stable enough for daily use as a guard layer in front of LLM calls.
-Features intentionally NOT in v0.1 are documented in CHANGELOG
-"Known limitations" and re-stated here for visibility:
+**v0.3.x — production.** The input + output + indirect-injection scanner
+pipeline, PII validators, policy engine, cost tracker, audit logger and
+FastMCP server are stable enough for daily use as a guard layer around LLM
+calls. Remaining backlog items are documented in CHANGELOG and re-stated
+here for visibility:
 
 | Area | Status |
 |---|---|
@@ -283,11 +289,13 @@ Features intentionally NOT in v0.1 are documented in CHANGELOG
 | In-memory + Redis cost-tracker | shipped |
 | Async batched audit logger | shipped, periodic-flush loop in v0.1.1 |
 | FastMCP server (3 tools) | shipped, FastMCP 2.x API |
-| **Output scanning** (LLM response → guard) | **v0.2 backlog** — currently only input is scanned |
-| **PostgreSQL audit store** (`asyncpg`) | **v0.2 backlog** — `[postgres]` extra removed in v0.1.1 |
-| **numpy-based anomaly z-score** | **v0.2 backlog** — current `detect_anomaly` uses stdlib `math` |
-| **FastMCP 3.0 + ToolAnnotations** | **v0.2 backlog** — readOnlyHint / openWorldHint per tool |
-| **`google-re2` ReDoS-safe engine** | **v0.2 backlog** — current patterns are ReDoS-hardened by hand |
+| **Output scanning** (LLM response → guard) | **shipped in v0.3** — `scan_output`, LLM05 |
+| **Indirect-injection scanning** (RAG / tool-output) | **shipped in v0.3** — `scan_ingested` / `scan_tool_output`, LLM01 |
+| **Typoglycemia defense** (scrambled-middle evasion) | **shipped in v0.3** — anagram-fold in heuristic |
+| **PostgreSQL audit store** (`asyncpg`) | backlog — `[postgres]` extra removed in v0.1.1 |
+| **numpy-based anomaly z-score** | backlog — current `detect_anomaly` uses stdlib `math` |
+| **FastMCP 3.0 + ToolAnnotations** | backlog — readOnlyHint / openWorldHint per tool |
+| **`google-re2` ReDoS-safe engine** | backlog — current patterns are ReDoS-hardened by hand |
 | Windows + Python 3.14 | not yet (3.10–3.13) |
 
 Security disclosure policy: [SECURITY.md](SECURITY.md). Contributing

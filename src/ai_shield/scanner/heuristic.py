@@ -203,6 +203,111 @@ def normalize(text: str) -> str:
     return out
 
 
+# -- Typoglycemia defense (scrambled-middle evasion) ----------------------
+# "ignroe pevrious instrcutions" reads fine to an LLM but dodges literal
+# patterns. Classic Typoglycemia is a PERMUTATION (same letters, scrambled
+# middle, fixed first+last) -- we match exactly that. We deliberately do NOT
+# fold on edit-distance: a single substitution/insert/delete between two REAL
+# words ("forgot"->"forget", "rulers"->"rules") is a frequent false positive,
+# and a security scanner that blocks benign prose just gets disabled. Anagram
+# matching is FP-free on a 116-word benign corpus.
+
+_TYPO_KEYWORDS: tuple[str, ...] = (
+    "ignore",
+    "previous",
+    "prior",
+    "preceding",
+    "earlier",
+    "instructions",
+    "instruction",
+    "disregard",
+    "override",
+    "forget",
+    "system",
+    "prompt",
+    "reveal",
+    "guidelines",
+    "rules",
+    "bypass",
+    "instead",
+    "above",
+    "everything",
+    "developer",
+    "jailbreak",
+    "restrictions",
+    "constraints",
+)
+# (keyword, first, last, length, sorted_middle)
+_TYPO_SIGNATURES: tuple[tuple[str, str, str, int, str], ...] = tuple(
+    (kw, kw[0], kw[-1], len(kw), "".join(sorted(kw[1:-1]))) for kw in _TYPO_KEYWORDS
+)
+_TYPO_WORD_RE = re.compile(r"[A-Za-z]{5,15}")
+
+
+def damerau_levenshtein(a: str, b: str, cap: int = 2) -> int:
+    """Damerau-Levenshtein (optimal string alignment) distance with an
+    early-exit cap: returns ``cap + 1`` as soon as the whole row exceeds
+    ``cap``. Zero-dependency. Exported as a standalone fuzzy-match utility --
+    NOT used by the Typoglycemia fold (which is anagram-only to avoid FPs)."""
+    if a == b:
+        return 0
+    m, n = len(a), len(b)
+    if abs(m - n) > cap:
+        return cap + 1
+    if m == 0:
+        return n
+    if n == 0:
+        return m
+    prev_prev = [0] * (n + 1)
+    prev = list(range(n + 1))
+    curr = [0] * (n + 1)
+    for i in range(1, m + 1):
+        curr[0] = i
+        row_min = curr[0]
+        for j in range(1, n + 1):
+            cost = 0 if a[i - 1] == b[j - 1] else 1
+            v = min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost)
+            if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
+                v = min(v, prev_prev[j - 2] + 1)
+            curr[j] = v
+            if v < row_min:
+                row_min = v
+        if row_min > cap:
+            return cap + 1
+        prev_prev, prev, curr = prev, curr, prev_prev
+    return prev[n]
+
+
+def unscramble(text: str) -> str:
+    """Un-scramble Typoglycemia evasion as an ADDITIONAL lossy view (like
+    ``leet_decode``), never a replacement. A >=5-letter word that is an anagram
+    of an injection keyword (same length + first/last letter + middle multiset)
+    is rewritten to the keyword. That is exactly classic Typoglycemia -- a
+    permuted middle -- and covers adjacent transpositions. Word scan capped at
+    4000 words to bound work on adversarial input."""
+    count = 0
+
+    def _fold(match: re.Match[str]) -> str:
+        nonlocal count
+        count += 1
+        if count > 4000:
+            return match.group(0)
+        word = match.group(0)
+        lower = word.lower()
+        first, last, length = lower[0], lower[-1], len(lower)
+        mid = "".join(sorted(lower[1:-1]))
+        for kw, kf, kl, klen, ksorted in _TYPO_SIGNATURES:
+            if klen != length or kf != first or kl != last:
+                continue
+            if kw == lower:
+                return word  # already the keyword -- leave for the normal pass
+            if ksorted == mid:
+                return kw
+        return word
+
+    return _TYPO_WORD_RE.sub(_fold, text)
+
+
 # -- Pattern catalogue ----------------------------------------------------
 
 
@@ -766,6 +871,10 @@ _LEET_SENSITIVE: frozenset[str] = frozenset(
     }
 )
 
+# Same set for the Typoglycemia re-test (anagram-folding noise is low, but the
+# discipline of only re-testing high-value categories matches the leet pass).
+_TYPO_SENSITIVE: frozenset[str] = _LEET_SENSITIVE
+
 
 @dataclass
 class HeuristicConfig:
@@ -815,6 +924,12 @@ class HeuristicScanner:
         # benign prose ("buy 3 items for 5 dollars") would otherwise add noise.
         leet_view = leet_decode(normalized)
         leet_differs = leet_view != normalized
+        # Fourth view that un-scrambles Typoglycemia ("ignroe pevrious" ->
+        # "ignore previous"). ADDITIONAL pass, only when it differs, only the
+        # high-value categories -- the anagram + first/last gate keeps benign
+        # long words ("instrument", "restaurants") from folding into a keyword.
+        typo_view = unscramble(normalized)
+        typo_differs = typo_view != normalized
         violations: list[Violation] = []
         score = 0.0
 
@@ -848,6 +963,23 @@ class HeuristicScanner:
                             "category": rule.category,
                             "pattern_id": rule.id,
                             "evasion": "leetspeak",
+                        },
+                    )
+                )
+            elif typo_differs and rule.category in _TYPO_SENSITIVE and rule.regex.search(typo_view):
+                # Matched only after un-scrambling -> Typoglycemia evasion.
+                score += rule.weight
+                violations.append(
+                    Violation(
+                        type="prompt_injection",
+                        severity=self._severity(rule.weight),
+                        detector=f"heuristic:{rule.id}",
+                        message=rule.description,
+                        confidence=min(rule.weight, 1.0),
+                        metadata={
+                            "category": rule.category,
+                            "pattern_id": rule.id,
+                            "evasion": "typoglycemia",
                         },
                     )
                 )

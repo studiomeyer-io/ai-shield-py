@@ -5,6 +5,61 @@ All notable changes to ai-shield-py will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-06-22
+
+Core-port pass — brings the Python port up to the TypeScript `ai-shield-core`
+v0.2/v0.3 feature waves with the two missing scanner *directions* plus a new
+evasion fold. Until now the port only answered "is this prompt safe to send?";
+v0.3 adds "is this ingested data safe to read?" and "is this model output safe
+to act on?", the two halves OWASP LLM01:2025 and LLM05:2025 are actually about.
+Additive only — no API breakage, no behavioural regression on the existing
+catalogue. Test count grows 376 → 411 (+35).
+
+### Added
+
+- **Indirect prompt-injection scanner (`ingestion.py`, OWASP LLM01).** New
+  `scan_ingested(content, source)` and `scan_tool_output(tool_name, content)`
+  coroutines scan non-user content — RAG chunks, MCP tool descriptions and tool
+  *results*, stored memory, scraped web pages, agent-to-agent messages — before
+  it enters the model context. Runs the base heuristic at a stricter per-source
+  threshold AND adds source-specific patterns the user channel does not see
+  (`rag` / `tool_desc` / `tool_output` / `memory` / `web` / `agent_output`).
+  Base-heuristic hits are re-tagged `ingested_injection`. On `block`,
+  `sanitized_text` is set to `""` so a naive `if not safe: use(sanitized)` path
+  is a no-op rather than a vulnerability. `scan_tool_output` stamps the
+  originating `tool_name` (capped 120 chars) into every violation's metadata.
+- **Output scanner (`output.py`, OWASP LLM05 + LLM02).** New `scan_output(text,
+  *, sinks, canary_tokens, pii, pii_action)` coroutine guards a model RESPONSE
+  before it reaches a SQL engine, shell, HTML sink or template renderer. Five
+  checks: secret leak (15 anchored provider-prefix formats — OpenAI/Anthropic/
+  AWS/GitHub/Google/GCP-SA/HF/npm/Slack/Stripe/JWT/PEM/DSN — with a
+  scrub-on-block guarantee that survives zero-width splitting), output injection
+  grouped by downstream sink (`sql` / `shell` / `html` / `template`, incl.
+  markdown-image data exfiltration), system-prompt leak (exact canary match
+  first, then heuristic), jailbreak indicator, and output-side PII (redact by
+  default). `sanitized_text` carries the redacted/masked output; gate on
+  `decision` before forwarding.
+- **Typoglycemia defense (`heuristic.py`).** Scrambled-middle evasion
+  ("Ignroe all prevoius instrcutions") reads fine to an LLM but dodges literal
+  patterns. A new lossy `unscramble()` view folds permuted keywords back to
+  canonical form and re-tests the high-value injection categories; matches are
+  tagged `metadata.evasion == "typoglycemia"`. Matching is **anagram-only**
+  (same length + first/last letter + sorted-middle multiset) — deliberately NOT
+  edit-distance: a single Damerau-Levenshtein edit between two real words
+  ("forgot"→"forget", "rulers"→"rules") is a frequent false positive, and a
+  security scanner that blocks benign prose just gets disabled. Anagram folding
+  is false-positive-free on a 116-word benign corpus. `damerau_levenshtein(a, b,
+  cap)` ships as a standalone capped-DP utility (exported, not used in the fold).
+- **New public exports.** `scan_ingested`, `scan_tool_output`, `scan_output`,
+  `unscramble`, `damerau_levenshtein`, and the `IngestionSource` / `OutputSink`
+  literal types. New `ViolationType` members: `ingested_injection`,
+  `output_injection`, `secret_leak`, `system_prompt_leak`, `jailbreak_indicator`.
+
+Three new test modules — `tests/test_ingestion.py`, `tests/test_output.py`,
+`tests/test_typoglycemia.py` — each pairing bypass-now-caught cases with benign
+false-positive guards (incl. the anagram-vs-edit-distance regression). Coverage
+holds at 94.9% (gate ≥90%); `output.py` is at 100%.
+
 ## [0.2.0] - 2026-06-21
 
 Detection-parity pass — ports the four new injection detectors from the
