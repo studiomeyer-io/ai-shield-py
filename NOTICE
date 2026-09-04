@@ -1,0 +1,7 @@
+Origin of this package
+======================
+
+ai-shield-py is a Python port of ai-shield-core
+(TypeScript, MIT, https://github.com/studiomeyer-io/ai-shield).
+
+Both are licensed MIT. The same statement is in the README under "License".
