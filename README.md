@@ -64,6 +64,7 @@ z-score) in CHANGELOG "Known limitations".
 import asyncio
 from ai_shield import AIShield
 
+
 async def main():
     shield = AIShield(policy_preset="public_website")
 
@@ -72,8 +73,9 @@ async def main():
         user_id="user-42",
     )
 
-    print(result.decision)   # 'block'
-    print(result.violations) # [Violation(type='prompt_injection', ...)]
+    print(result.decision)  # 'block'
+    print(result.violations)  # [Violation(type='prompt_injection', ...)]
+
 
 asyncio.run(main())
 ```
@@ -143,7 +145,7 @@ from ai_shield import AIShield
 client = redis_async.from_url(
     "rediss://prod-redis.example.com:6380/0",
     ssl=True,
-    ssl_cert_reqs="required",   # validate server cert
+    ssl_cert_reqs="required",  # validate server cert
     ssl_ca_certs="/etc/ssl/redis-ca.pem",
 )
 shield = AIShield(redis_client=client)
@@ -180,6 +182,7 @@ redis.call('INCRBYFLOAT', KEYS[1], ARGV[1])
 redis.call('EXPIRE', KEYS[1], ARGV[2])
 return redis.call('GET', KEYS[1])
 """
+
 
 class LuaRedisStore:
     def __init__(self, client: redis_async.Redis) -> None:
