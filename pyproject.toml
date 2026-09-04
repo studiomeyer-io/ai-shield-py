@@ -37,7 +37,10 @@ classifiers = [
 ]
 dependencies = [
   "pydantic>=2.0.0,<3.0.0",
-  "mcp>=1.27.0,<3.0.0",
+  # mcp 2.x hat FastMCP in MCPServer umbenannt; src/ai_shield/mcp_server.py
+  # importiert `from mcp.server.fastmcp import FastMCP` und bricht damit sofort.
+  # Die Grenze bleibt bei <2.0.0, bis der Server auf die neue API portiert ist.
+  "mcp>=1.27.0,<2.0.0",
 ]
 
 [project.optional-dependencies]

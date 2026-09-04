@@ -303,7 +303,13 @@ class TestReDoSAdversarial:
         # `normalize` walks every char — large input must still finish quickly.
         normalize("a" * 50_000)
 
-    @pytest.mark.timeout(0.1)
+    # Gemessen (20 Proben, aufgewaermt): Median 22 ms. Bei 0.1 s waere die
+    # Reserve nur das Fuenffache, und genau daran ist dieser Test am 04.09.2026
+    # auf EINEM von acht Matrix-Beinen gescheitert, waehrend 410 Tests gruen
+    # waren. Die Aussage soll eine ReDoS-Quadratik nachweisen, und die braucht
+    # bei 50 kB Sekunden bis Minuten: 1 s traegt sie weiterhin, ueberlebt aber
+    # einen ausgelasteten Laeufer.
+    @pytest.mark.timeout(1.0)
     @pytest.mark.asyncio
     async def test_full_scan_50kb(self) -> None:
         scanner = HeuristicScanner()
