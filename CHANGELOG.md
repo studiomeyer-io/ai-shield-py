@@ -5,6 +5,47 @@ All notable changes to ai-shield-py will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **25 open advisories closed in the production dependency tree**, eight of
+  them high. They only became visible on 2026-09-04: GitHub had never read this
+  repository's dependency graph, and every alert carries the same minute as the
+  commit that finally triggered it. Silence was not health here.
+
+  Raised: `mcp` 1.27.0 to 1.29.1, `cryptography` 47.0.0 to 50.0.1, `starlette`
+  1.0.0 to 1.6.0, `pyjwt` 2.12.1 to 2.13.0, `python-multipart` 0.0.27 to
+  0.0.32, `urllib3` 2.6.3 to 2.7.0, `idna` 3.13 to 3.19, `pydantic-settings`
+  2.14.0 to 2.15.0. Only `pydantic` and `mcp` are direct dependencies; the rest
+  arrive through `mcp`.
+
+  `cryptography` crosses three major versions and `starlette` six minor ones,
+  so the whole CI chain was run locally before committing: ruff clean, mypy
+  strict clean, 411 tests green, coverage 95% against a floor of 90, twine
+  check passing on both artifacts, plus a runtime probe of the MCP server
+  because a green test does not vouch for a major jump.
+
+### Fixed
+
+- **The `mcp` bound was widened to something the code cannot take.** A
+  Dependabot PR moved it from `<2.0.0` to `<3.0.0` on 2026-08-12 (`ec86d63`).
+  There was no `mcp` 2.x back then; today PyPI serves 2.1.1, and
+  `src/ai_shield/mcp_server.py` imports `from mcp.server.fastmcp import
+  FastMCP`, which 2.x renamed to `MCPServer`. CI did not catch it at the time
+  because it was red for an unrelated reason (twine metadata) and merged
+  anyway. Published 0.3.0 on PyPI still carries the correct `<2.0.0`; only the
+  next release would have shipped broken. Restored, with the reason in a
+  comment next to the bound.
+
+- **A test was measuring the CI runner, not the code.**
+  `test_full_scan_50kb` carried `timeout(0.1)` while the scan takes 22 ms
+  median over 20 warmed-up runs, so barely a fivefold margin. It failed on
+  exactly one of eight matrix legs while 410 tests passed. The assertion is
+  about ReDoS, and a quadratic blow-up on 50 kB takes seconds to minutes, so
+  1 s carries it just as well and survives a busy runner. Verified by
+  mutation: with a 1.5 s delay injected the test fails, without it passes.
+
 ## [0.3.0] - 2026-06-22
 
 Core-port pass — brings the Python port up to the TypeScript `ai-shield-core`
