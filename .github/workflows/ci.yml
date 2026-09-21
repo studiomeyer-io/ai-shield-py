@@ -41,6 +41,12 @@ jobs:
       - name: Pytest
         run: uv run pytest --cov=ai_shield --cov-report=term-missing --cov-fail-under=90
 
+      - name: Pytest against mcp 1.x
+        # pyproject allows mcp 1.x and 2.x, the lock pins 2.x. This run keeps
+        # the 1.x fallback in mcp_server.py honest (FastMCP instead of
+        # MCPServer, camelCase field names on the Python side).
+        run: uv run --with "mcp<2" pytest -q
+
       - name: Build sdist + wheel
         run: uv build
 

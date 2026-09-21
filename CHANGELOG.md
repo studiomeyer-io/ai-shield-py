@@ -26,6 +26,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   check passing on both artifacts, plus a runtime probe of the MCP server
   because a green test does not vouch for a major jump.
 
+### Changed
+
+- **`mcp` 2.x is supported next to 1.x.** `mcp_server.py` imports
+  `MCPServer` (2.x) and falls back to `FastMCP` (1.x). Tool annotations are
+  built from their wire names via `model_validate`, because 2.x renamed the
+  Python fields (`read_only_hint`) while the wire names stayed camelCase. The
+  bound is now `>=1.27.0,<3.0.0`, the lock pins 2.2.0, and CI runs the suite a
+  second time against `mcp<2`. Verified on 1.30.0 and 2.2.0: 411 tests each,
+  mypy strict against 2.x, and `tools/list` over stdio byte-identical between
+  the two. This supersedes the restored `<2.0.0` bound under Fixed below.
+
 ### Fixed
 
 - **The `mcp` bound was widened to something the code cannot take.** A
