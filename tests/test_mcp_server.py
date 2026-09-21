@@ -26,10 +26,13 @@ class TestToolRegistration:
         scan = next(t for t in tools if t.name == "scan_input")
         ann = scan.annotations
         assert ann is not None
-        assert ann.readOnlyHint is True
-        assert ann.destructiveHint is False
-        assert ann.idempotentHint is True
-        assert ann.openWorldHint is False
+        # Wire names, as a client sees them: identical on mcp 1.x and 2.x,
+        # whose Python field names differ (readOnlyHint vs read_only_hint).
+        wire = ann.model_dump(by_alias=True)
+        assert wire["readOnlyHint"] is True
+        assert wire["destructiveHint"] is False
+        assert wire["idempotentHint"] is True
+        assert wire["openWorldHint"] is False
 
     @pytest.mark.asyncio
     async def test_record_llm_cost_annotations(self) -> None:
@@ -37,9 +40,12 @@ class TestToolRegistration:
         rec = next(t for t in tools if t.name == "record_llm_cost")
         ann = rec.annotations
         assert ann is not None
-        assert ann.readOnlyHint is False
+        # Wire names, as a client sees them: identical on mcp 1.x and 2.x,
+        # whose Python field names differ (readOnlyHint vs read_only_hint).
+        wire = ann.model_dump(by_alias=True)
+        assert wire["readOnlyHint"] is False
         # Recording cost is append-only; not destructive in MCP spec sense.
-        assert ann.destructiveHint is False
+        assert wire["destructiveHint"] is False
 
     @pytest.mark.asyncio
     async def test_check_budget_annotations(self) -> None:
@@ -47,8 +53,11 @@ class TestToolRegistration:
         cb = next(t for t in tools if t.name == "check_budget")
         ann = cb.annotations
         assert ann is not None
-        assert ann.readOnlyHint is True
-        assert ann.idempotentHint is True
+        # Wire names, as a client sees them: identical on mcp 1.x and 2.x,
+        # whose Python field names differ (readOnlyHint vs read_only_hint).
+        wire = ann.model_dump(by_alias=True)
+        assert wire["readOnlyHint"] is True
+        assert wire["idempotentHint"] is True
 
 
 class TestConfigurePreset:

@@ -1,4 +1,4 @@
-"""FastMCP server exposing AIShield as 3 tools.
+"""MCP server exposing AIShield as 3 tools.
 
 Tools:
   - scan_input        — run scanner chain on a text payload
@@ -14,24 +14,40 @@ Or:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
 from ai_shield.policy.engine import PRESETS, PolicyPreset
 from ai_shield.shield import AIShield
 
-mcp: FastMCP = FastMCP("ai-shield")
+# mcp 2.x renamed FastMCP to MCPServer (mcp.server.mcpserver); the parts used
+# here (constructor name, .tool(annotations=...), .list_tools(), .run()) kept
+# their shape. The type checker sees the 2.x class; at runtime a 1.x install
+# falls back to the old name, so both majors keep working. Tool annotations
+# are built from their wire names (camelCase) via model_validate: the Python
+# field names differ between majors (readOnlyHint vs read_only_hint), the wire
+# names do not.
+if TYPE_CHECKING:
+    from mcp.server.mcpserver import MCPServer
+else:
+    try:
+        from mcp.server.mcpserver import MCPServer
+    except ImportError:  # mcp 1.x
+        from mcp.server.fastmcp import FastMCP as MCPServer
+
+mcp: MCPServer = MCPServer("ai-shield")
 _shield: AIShield = AIShield()
 
 
 @mcp.tool(
-    annotations=ToolAnnotations(
-        readOnlyHint=True,
-        destructiveHint=False,
-        idempotentHint=True,
-        openWorldHint=False,
+    annotations=ToolAnnotations.model_validate(
+        {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        }
     ),
 )
 async def scan_input(
@@ -49,11 +65,13 @@ async def scan_input(
 
 
 @mcp.tool(
-    annotations=ToolAnnotations(
-        readOnlyHint=False,
-        destructiveHint=False,
-        idempotentHint=False,
-        openWorldHint=False,
+    annotations=ToolAnnotations.model_validate(
+        {
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": False,
+        }
     ),
 )
 async def record_llm_cost(
@@ -75,11 +93,13 @@ async def record_llm_cost(
 
 
 @mcp.tool(
-    annotations=ToolAnnotations(
-        readOnlyHint=True,
-        destructiveHint=False,
-        idempotentHint=True,
-        openWorldHint=False,
+    annotations=ToolAnnotations.model_validate(
+        {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        }
     ),
 )
 async def check_budget(entity_id: str) -> dict[str, Any]:
@@ -100,7 +120,7 @@ def configure_preset(preset: PolicyPreset) -> None:
 
 
 def main() -> None:
-    """Console entry point — runs FastMCP over stdio transport."""
+    """Console entry point: runs the MCP server over stdio transport."""
     mcp.run()
 
 
